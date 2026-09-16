@@ -9,7 +9,7 @@ const firebaseConfig = {
   projectId: "fitpact-747ff",
   storageBucket: "fitpact-747ff.firebasestorage.app",
   messagingSenderId: "714582986087",
-  appId: "1:714582986087:web:a0e31ba6e0af63d4f3f3c2
+  appId: "1:714582986087:web:a0e31ba6e0af63d4f3f3c2"
 };
 
 firebase.initializeApp(firebaseConfig);
