@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>FitPact</title>
+
+<!-- iOS "Add to Home Screen" support -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="FitPact" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#0f172a" />
+
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div id="app" class="app">
+  <div id="mainContent" class="main-content">
+    <div class="screen center">
+      <div class="spinner"></div>
+      <p>Loading FitPact…</p>
+    </div>
+  </div>
+
+  <nav id="bottomNav" class="bottom-nav hidden">
+    <button class="nav-item" data-tab="home"><span class="nav-icon">🏠</span><span>Home</span></button>
+    <button class="nav-item" data-tab="calendar"><span class="nav-icon">📅</span><span>Calendar</span></button>
+    <button class="nav-item" data-tab="us"><span class="nav-icon">❤️</span><span>Us</span></button>
+    <button class="nav-item" data-tab="pool"><span class="nav-icon">🏦</span><span>Pool</span></button>
+  </nav>
+
+  <button id="fabWorkout" class="fab hidden">
+    <span class="fab-plus">＋</span><span class="fab-label">Workout</span>
+  </button>
+
+  <div id="workoutSheet" class="sheet-overlay hidden">
+    <div class="sheet">
+      <button id="sheetGym" class="btn primary full">🏋️ Log Gym Workout</button>
+      <button id="sheetHome" class="btn secondary full">🏠 Log Home Workout <span class="tiny">(3 = 1 gym)</span></button>
+      <button id="sheetCancel" class="btn full cancel-btn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Templates rendered by app.js into #mainContent -->
+
+<template id="tpl-login">
+  <div class="screen center">
+    <h1 class="logo">FitPact</h1>
+    <p class="subtitle">Put your money where your workouts are.</p>
+
+    <div class="card form-card">
+      <div class="tabs">
+        <button class="tab active" data-tab="login">Log In</button>
+        <button class="tab" data-tab="signup">Sign Up</button>
+      </div>
+
+      <div id="signupExtra" class="hidden">
+        <input id="displayName" type="text" placeholder="Your name" />
+      </div>
+      <input id="email" type="email" placeholder="Email" autocomplete="email" />
+      <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
+      <button id="authSubmit" class="btn primary full">Log In</button>
+      <p id="authError" class="error hidden"></p>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-setup">
+  <div class="screen center">
+    <h1 class="logo">FitPact</h1>
+    <div class="card form-card">
+      <div class="tabs">
+        <button class="tab active" data-mode="create">Start a Pact</button>
+        <button class="tab" data-mode="join">Join Partner's</button>
+      </div>
+
+      <input id="setupName" type="text" placeholder="Your display name" />
+
+      <div id="createFields">
+        <label class="field-label">Monthly deposit (KES)</label>
+        <input id="depositAmount" type="number" value="5000" />
+        <label class="field-label">Monthly workout target</label>
+        <input id="targetCount" type="number" value="17" />
+        <button id="createPactBtn" class="btn primary full">Create Pact</button>
+        <div id="pactIdReveal" class="hidden pact-id-box">
+          <p class="small">Share this Pact ID with your partner:</p>
+          <code id="pactIdText"></code>
+        </div>
+      </div>
+
+      <div id="joinFields" class="hidden">
+        <label class="field-label">Pact ID from your partner</label>
+        <input id="joinPactId" type="text" placeholder="e.g. Ab12Cd34" />
+        <button id="joinPactBtn" class="btn primary full">Join Pact</button>
+      </div>
+
+      <p id="setupError" class="error hidden"></p>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-home">
+  <div class="screen">
+    <header class="topbar">
+      <h2>This Month</h2>
+      <button id="settingsBtn" class="icon-btn" title="Settings">⚙️</button>
+    </header>
+    <div class="content">
+      <div id="streakCard" class="card streak-card"></div>
+      <div id="myProgress" class="card progress-card"></div>
+      <div id="depositCard" class="card center-text"></div>
+      <div id="homeRiskSummary" class="card home-risk-summary"></div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-calendar">
+  <div class="screen">
+    <header class="topbar">
+      <div class="cal-nav">
+        <button id="calPrevBtn" class="icon-btn small">‹</button>
+        <h2 id="calMonthLabel">September 2026</h2>
+        <button id="calNextBtn" class="icon-btn small">›</button>
+      </div>
+    </header>
+    <div class="content">
+      <div id="calStats" class="cal-stats"></div>
+
+      <div class="cal-legend">
+        <span><span class="dot dot-me"></span> You</span>
+        <span><span class="dot dot-partner"></span> <span id="calPartnerName">Partner</span></span>
+      </div>
+      <div class="cal-legend cal-legend-shape">
+        <span><span class="mark-sample"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="1" y="9" width="3" height="6" rx="1"/><rect x="20" y="9" width="3" height="6" rx="1"/><rect x="5" y="10.5" width="14" height="3" rx="1"/></svg></span> Gym</span>
+        <span><span class="mark-sample"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12,3 21,11 18.5,11 18.5,21 5.5,21 5.5,11 3,11"/></svg></span> Home</span>
+      </div>
+
+      <div class="cal-weekdays">
+        <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+      </div>
+      <div id="calGrid" class="cal-grid"></div>
+
+      <div id="calDayDetail" class="card cal-day-detail hidden"></div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-us">
+  <div class="screen">
+    <header class="topbar"><h2>Us</h2></header>
+    <div class="content">
+      <div id="usProgress"></div>
+      <div id="usStreaks" class="us-streaks-grid"></div>
+      <div class="card">
+        <p class="label">Achievements</p>
+        <div id="usAchievements" class="achv-grid"></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-pool">
+  <div class="screen">
+    <header class="topbar"><h2>Pool</h2></header>
+    <div class="content">
+      <div class="card pool-card">
+        <p class="label">Forfeited Pool</p>
+        <p id="poolTotal" class="pool-amount">KES 0</p>
+        <p class="small muted">Grows whenever someone misses their target.</p>
+      </div>
+      <div id="riskSummary" class="card"></div>
+      <p class="label" style="margin:18px 0 8px;">Past Months</p>
+      <div id="poolHistory"><p class="center muted small">No completed months yet.</p></div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-notifsettings">
+  <div class="screen">
+    <header class="topbar">
+      <button id="backBtn" class="icon-btn">←</button>
+      <h2>Settings</h2>
+      <div style="width:32px"></div>
+    </header>
+    <div class="content">
+      <p class="small muted" style="margin-bottom:16px;">
+        These fire while the app is open on your phone. For true background
+        push, see the README's Cloud Functions upgrade.
+      </p>
+
+      <div class="card">
+        <p class="label">Daily reminder</p>
+        <label class="toggle-row"><input type="checkbox" data-pref="time" data-key="08:00" /> 8:00 AM</label>
+        <label class="toggle-row"><input type="checkbox" data-pref="time" data-key="12:00" /> 12:00 PM</label>
+        <label class="toggle-row"><input type="checkbox" data-pref="time" data-key="18:00" /> 6:00 PM</label>
+        <label class="toggle-row"><input type="checkbox" data-pref="time" data-key="20:30" /> 8:30 PM</label>
+      </div>
+
+      <div class="card">
+        <p class="label">Couple notifications</p>
+        <label class="toggle-row"><input type="checkbox" data-pref="couple" data-key="partnerCompleted" /> Partner completed workout</label>
+        <label class="toggle-row"><input type="checkbox" data-pref="couple" data-key="partnerTookLead" /> Partner took the lead</label>
+        <label class="toggle-row"><input type="checkbox" data-pref="couple" data-key="partnerLostStreak" /> Partner lost streak</label>
+        <label class="toggle-row"><input type="checkbox" data-pref="couple" data-key="fallingBehind" /> You're falling behind</label>
+      </div>
+
+      <button id="signOutBtn" class="btn full" style="margin-top:8px;">Sign Out</button>
+    </div>
+  </div>
+</template>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="js/firebase-config.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
