@@ -45,6 +45,18 @@ function partnerUidOf() {
   return (state.pact.memberIds || []).find(id => id !== state.uid);
 }
 
+function ringSVG(pct, size, strokeWidth, color) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - Math.min(Math.max(pct, 0), 1));
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${radius}" stroke="var(--card-2)" stroke-width="${strokeWidth}" fill="none"/>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${radius}" stroke="${color}" stroke-width="${strokeWidth}" fill="none"
+      stroke-dasharray="${circumference}" stroke-dashoffset="${offset}" stroke-linecap="round"
+      transform="rotate(-90 ${size / 2} ${size / 2})" style="transition: stroke-dashoffset 0.4s;"/>
+  </svg>`;
+}
+
 // ------------------------------------------------------------
 // Auth state
 // ------------------------------------------------------------
@@ -342,17 +354,23 @@ function renderSetup() {
 // Home tab
 // ------------------------------------------------------------
 
-function renderHome() {
+async function renderHome() {
   if (!state.pact || !state.cycle) return;
   mainEl.innerHTML = '';
   mainEl.appendChild(clone('tpl-home'));
   mainEl.querySelector('#settingsBtn').addEventListener('click', renderSettings);
 
-  renderStreakCard();
-
   const target = state.cycle.target;
   const myStat = state.cycle.stats[state.uid] || {};
-  mainEl.querySelector('#myProgress').innerHTML = progressCardHTML('You', myStat, target);
+  const eff = effectiveWorkouts(myStat);
+  const pct = target > 0 ? eff / target : 0;
+
+  mainEl.querySelector('#ringWrap').innerHTML = `
+    ${ringSVG(pct, 130, 12, pct >= 1 ? 'var(--accent)' : 'var(--accent-2)')}
+    <div class="ring-center">
+      <div class="ring-num">${eff}</div>
+      <div class="ring-label">of ${target} workouts</div>
+    </div>`;
 
   const depositCard = mainEl.querySelector('#depositCard');
   if (myStat.deposited) {
@@ -367,13 +385,28 @@ function renderHome() {
   const now = new Date();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysLeft = Math.max(daysInMonth - now.getDate(), 0);
-  const eff = effectiveWorkouts(myStat);
   const remaining = Math.max(target - eff, 0);
   const atRisk = myStat.deposited ? state.pact.depositAmount : 0;
 
-  mainEl.querySelector('#homeRiskSummary').innerHTML = `
-    <span>${daysLeft} days left · ${remaining} workout${remaining === 1 ? '' : 's'} to go</span>
-    <span class="value">${formatMoney(atRisk)} at risk</span>`;
+  const { current: streak } = await computeStreak(state.uid);
+
+  mainEl.querySelector('#homeTiles').innerHTML = `
+    <div class="tile tile-purple">
+      <span class="tile-label">🔥 Streak</span>
+      <span class="tile-value">${streak} day${streak === 1 ? '' : 's'}</span>
+    </div>
+    <div class="tile tile-blue">
+      <span class="tile-label">📅 Days Left</span>
+      <span class="tile-value">${daysLeft}</span>
+    </div>
+    <div class="tile tile-orange">
+      <span class="tile-label">🏋️ To Go</span>
+      <span class="tile-value">${remaining}</span>
+    </div>
+    <div class="tile ${remaining === 0 ? 'tile-green' : 'tile-red'}">
+      <span class="tile-label">💰 At Risk</span>
+      <span class="tile-value">${formatMoney(atRisk)}</span>
+    </div>`;
 }
 
 function progressCardHTML(title, stat, target) {
@@ -421,7 +454,16 @@ async function renderCalendar(monthDate) {
     calViewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
 
   const cycleId = cycleIdFor(calViewDate);
-  const cycleSnap = await db.collection('pacts').doc(state.pactId).collection('cycles').doc(cycleId).get();
+  const monthStart = new Date(calViewDate.getFullYear(), calViewDate.getMonth(), 1);
+  const monthEnd = new Date(calViewDate.getFullYear(), calViewDate.getMonth() + 1, 1);
+
+  const [cycleSnap, logsSnap] = await Promise.all([
+    db.collection('pacts').doc(state.pactId).collection('cycles').doc(cycleId).get(),
+    db.collection('pacts').doc(state.pactId).collection('workoutLogs')
+      .where('timestamp', '>=', monthStart)
+      .where('timestamp', '<', monthEnd)
+      .get(),
+  ]);
   const cycleData = cycleSnap.exists ? cycleSnap.data() : null;
   const target = cycleData ? cycleData.target : (state.pact.monthlyTarget || 17);
   const myStat = cycleData ? (cycleData.stats[state.uid] || {}) : {};
@@ -436,13 +478,6 @@ async function renderCalendar(monthDate) {
       <span class="name">${partnerName}</span>
       <span class="count">${effectiveWorkouts(partnerStat)}/${target}</span>
     </div>`;
-
-  const monthStart = new Date(calViewDate.getFullYear(), calViewDate.getMonth(), 1);
-  const monthEnd = new Date(calViewDate.getFullYear(), calViewDate.getMonth() + 1, 1);
-  const logsSnap = await db.collection('pacts').doc(state.pactId).collection('workoutLogs')
-    .where('timestamp', '>=', monthStart)
-    .where('timestamp', '<', monthEnd)
-    .get();
 
   const byDay = {};
   logsSnap.forEach(doc => {
@@ -553,8 +588,11 @@ async function renderUs() {
     <div class="card progress-card">${progressCardHTML('You', myStat, target)}</div>
     <div class="card progress-card">${progressCardHTML(partnerName, partnerStat, target)}</div>`;
 
-  const myStreak = await computeStreak(state.uid);
-  const partnerStreak = partnerUid ? await computeStreak(partnerUid) : { current: 0, best: 0 };
+  const [myStreak, partnerStreak, closedCycles] = await Promise.all([
+    computeStreak(state.uid),
+    partnerUid ? computeStreak(partnerUid) : Promise.resolve({ current: 0, best: 0 }),
+    fetchClosedCycles(),
+  ]);
   checkPartnerStreakDrop(partnerStreak.current);
 
   mainEl.querySelector('#usStreaks').innerHTML = `
@@ -569,7 +607,6 @@ async function renderUs() {
       <div class="who">${partnerName} · best ${partnerStreak.best}</div>
     </div>`;
 
-  const closedCycles = await fetchClosedCycles();
   const achievements = computeAchievements({ myStreak, partnerStreak, myStat, partnerStat, target, closedCycles });
   mainEl.querySelector('#usAchievements').innerHTML = achievements.map(a => `
     <div class="achv-badge ${a.unlocked ? 'unlocked' : ''}">
@@ -647,6 +684,22 @@ function renderSettings() {
   mainEl.appendChild(clone('tpl-notifsettings'));
   mainEl.querySelector('#backBtn').addEventListener('click', () => { showShell(); switchTab(state.activeTab); });
   mainEl.querySelector('#signOutBtn').addEventListener('click', () => auth.signOut());
+
+  mainEl.querySelector('#settingsPactId').textContent = state.pactId;
+  mainEl.querySelector('#sharePactIdBtn').addEventListener('click', async () => {
+    const text = `Join my FitPact! Pact ID: ${state.pactId}`;
+    if (navigator.share) {
+      try { await navigator.share({ text }); } catch (e) { /* user cancelled */ }
+    } else {
+      try {
+        await navigator.clipboard.writeText(state.pactId);
+        const btn = mainEl.querySelector('#sharePactIdBtn');
+        const original = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      } catch (e) { /* clipboard unavailable */ }
+    }
+  });
 
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
