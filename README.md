@@ -100,6 +100,12 @@ app.
 
 ---
 
+## Appearance (dark/light)
+
+Settings now has a Dark/Light toggle. It's saved per-device (in that
+browser's local storage), so you and your partner can each pick your own
+without affecting the other's phone.
+
 ## Navigation
 
 The app now uses a bottom tab bar with four tabs, plus a floating **+ Workout**
@@ -134,36 +140,73 @@ whatever figure makes sense for you two.
   rules earlier, re-paste the updated `firestore.rules` and Publish again**,
   since this version adds a rule for that new subcollection.
 
-## About notifications
+## Push notifications (real, works when the app is closed)
 
-This version shows notifications for:
-- Daily check-ins at whichever of the four times you've enabled (skipped
-  automatically once you've already logged a workout that day)
-- A message the moment you complete a workout (with a deposit-secured note
-  once you hit target)
-- An automatic switch to an urgent "N days left" message in the final 4
-  days of the month, regardless of time slot
-- Partner-triggered messages (completed a workout, took the lead, their
-  streak ended, you're falling behind) — computed by comparing live
-  Firestore updates, so this only works while your app is open to receive them
+This version adds actual push notifications via Firebase Cloud Messaging
+(FCM), on top of the foreground notifications from before. Getting this
+fully working takes a bit more setup than the rest of the app — here's
+exactly what's needed.
 
-**What it can't do (without more setup):** true background push notifications
-— the kind that arrive daily at 6pm even if you haven't opened the app — need
-a paid Firebase plan (Blaze) plus a scheduled Cloud Function and Web Push
-(FCM) wiring. It's genuinely doable since iOS 16.4+ supports web push for
-home-screen apps, but it's a meaningfully bigger lift. If you want it, the
-building blocks are:
-1. Firebase Console → Project Settings → Cloud Messaging → generate a **Web
-   Push certificate (VAPID key)**.
-2. Add a `firebase-messaging-sw.js` service worker to request a push token
-   and save it to Firestore per user.
-3. Upgrade to the **Blaze** (pay-as-you-go) plan — cost for two users sending
-   a few pushes a day is effectively $0, but Blaze requires a card on file.
-4. Write scheduled + Firestore-triggered Cloud Functions that read each
-   user's pace/prefs and send the same message templates via the Firebase
-   Admin SDK's messaging API.
+### 1. Generate a VAPID key
 
-Happy to build that out for you if you decide you want it later — just ask.
+Firebase Console → Project Settings → **Cloud Messaging** tab → under "Web
+configuration", click **Generate key pair**. Copy the key it gives you and
+paste it into `js/firebase-config.js` → the `VAPID_KEY` constant.
+
+### 2. Fill in your Firebase config in the service worker
+
+`firebase-messaging-sw.js` (at the root of the project, next to `index.html`)
+needs the **same** `firebaseConfig` values you already put in
+`js/firebase-config.js` — service workers can't import your other JS files,
+so this file has its own copy. Paste your real values into both places.
+
+### 3. Deploy the service worker at your site's root
+
+Make sure `firebase-messaging-sw.js` ends up at the same level as
+`index.html` in whatever you deploy (GitHub Pages, Netlify, etc.) — not
+inside a subfolder. If you've been dragging the whole `FitPactWeb` folder in,
+this already happens automatically.
+
+### 4. Enable push in the app
+
+Open Settings (gear icon on Home) → tap **Enable Push Notifications** → allow
+the permission prompt. Do this on both phones. This registers each device
+and saves its push token to Firestore.
+
+### 5. Deploy the Cloud Functions backend (the part that actually sends pushes)
+
+Without this step, tokens get saved but nothing ever sends them a push — the
+functions in `functions/index.js` are what actually fire on schedule and on
+partner events.
+
+```bash
+npm install -g firebase-tools   # if you don't have it already
+firebase login
+cd path/to/FitPactWeb
+firebase init functions         # choose JavaScript, don't overwrite functions/index.js
+cd functions
+npm install
+cd ..
+firebase deploy --only functions
+```
+
+**This requires upgrading to the Blaze (pay-as-you-go) plan** — scheduled
+functions need Cloud Scheduler, which isn't available on the free Spark
+plan. Firebase Console → click the plan name (bottom-left) → Upgrade. Blaze
+still has a generous free tier underneath it; for two people getting a
+handful of pushes a day, real cost is effectively $0 — but Blaze does
+require a card on file, unlike Spark.
+
+The functions default to `Africa/Nairobi` timezone (matching the KES
+currency) — change the `TIMEZONE` constant at the top of `functions/index.js`
+if you're elsewhere, then redeploy.
+
+### What happens without the Cloud Functions deployed
+
+The app still works and still shows notifications — just only the
+foreground kind from before (while the app is actually open), using the
+same message templates. The push setup above is what upgrades those to
+real, phone-buzzes-even-when-closed notifications.
 
 ---
 
@@ -171,12 +214,17 @@ Happy to build that out for you if you decide you want it later — just ask.
 
 ```
 FitPactWeb/
-  index.html              # App shell + all screen templates
-  css/style.css            # Mobile-first dark theme
-  js/firebase-config.js    # Your Firebase project keys go here
-  js/app.js                # All logic: auth, Firestore sync, rendering, rollover
-  manifest.json            # PWA metadata (icons optional — see below)
-  firestore.rules          # Security rules to paste into Firebase Console
+  index.html                 # App shell + all screen templates
+  css/style.css               # Mobile-first theme (dark + light)
+  js/firebase-config.js       # Your Firebase project keys + VAPID key go here
+  js/app.js                   # All logic: auth, Firestore sync, rendering, rollover
+  firebase-messaging-sw.js    # Service worker for background push (needs its own copy of your config)
+  manifest.json               # PWA metadata (icons optional — see below)
+  firestore.rules             # Security rules to paste into Firebase Console
+  functions/                  # Cloud Functions backend for real push (optional, needs Blaze plan)
+    index.js
+    package.json
+  .nojekyll                   # Tells GitHub Pages not to run Jekyll on this static site
 ```
 
 ### Optional: home screen icon

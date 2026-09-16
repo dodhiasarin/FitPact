@@ -678,6 +678,29 @@ async function renderPool() {
 // Settings screen (notifications + sign out)
 // ------------------------------------------------------------
 
+async function registerPush() {
+  const statusEl = mainEl.querySelector('#pushStatus');
+  if (!messaging) {
+    if (statusEl) statusEl.textContent = 'Push isn\'t supported in this browser.';
+    return;
+  }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      if (statusEl) statusEl.textContent = 'Permission denied — enable notifications for this site in your phone settings.';
+      return;
+    }
+    const registration = await navigator.serviceWorker.register('firebase-messaging-sw.js');
+    const token = await messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: registration });
+    if (token) {
+      await notifPrefsRef().set({ fcmToken: token }, { merge: true });
+      if (statusEl) statusEl.textContent = '✅ Push notifications enabled on this device.';
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `Couldn't enable push: ${e.message}`;
+  }
+}
+
 function renderSettings() {
   hideShell();
   mainEl.innerHTML = '';
@@ -686,6 +709,18 @@ function renderSettings() {
   mainEl.querySelector('#signOutBtn').addEventListener('click', () => auth.signOut());
 
   mainEl.querySelector('#settingsPactId').textContent = state.pactId;
+
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+  mainEl.querySelectorAll('[data-theme-choice]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.themeChoice === currentTheme);
+    btn.addEventListener('click', () => {
+      const theme = btn.dataset.themeChoice;
+      document.documentElement.setAttribute('data-theme', theme);
+      try { localStorage.setItem('fitpact_theme', theme); } catch (e) {}
+      mainEl.querySelectorAll('[data-theme-choice]').forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+
   mainEl.querySelector('#sharePactIdBtn').addEventListener('click', async () => {
     const text = `Join my FitPact! Pact ID: ${state.pactId}`;
     if (navigator.share) {
@@ -700,6 +735,20 @@ function renderSettings() {
       } catch (e) { /* clipboard unavailable */ }
     }
   });
+
+  mainEl.querySelector('#enablePushBtn').addEventListener('click', registerPush);
+  (async () => {
+    const statusEl = mainEl.querySelector('#pushStatus');
+    if (!messaging) { statusEl.textContent = "Push isn't supported in this browser."; return; }
+    if (Notification.permission === 'granted') {
+      const snap = await notifPrefsRef().get().catch(() => null);
+      statusEl.textContent = (snap && snap.exists && snap.data().fcmToken)
+        ? '✅ Push notifications enabled on this device.'
+        : 'Permission granted — tap below to finish setup.';
+    } else {
+      statusEl.textContent = 'Not enabled yet.';
+    }
+  })();
 
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
@@ -805,6 +854,14 @@ async function loadNotifPrefs() {
 function notify(title, body) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   new Notification(title, { body });
+}
+
+if (messaging) {
+  messaging.onMessage((payload) => {
+    const title = (payload.notification && payload.notification.title) || 'FitPact';
+    const body = (payload.notification && payload.notification.body) || '';
+    notify(title, body);
+  });
 }
 
 function monthName() {
